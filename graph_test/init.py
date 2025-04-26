@@ -23,40 +23,44 @@ def visualize_result(query_graph, nodes_text_properties):
     visual_graph.show('network.html', notebook=False)
 
 def run_query(driver):
-    input_list = [("Arthur", "Guinevre"),
-                  ("Arthur", "Lancelot"),
-                  ("Arthur", "Merlin")]
-    driver.execute_query("""
-        UNWIND $pairs AS pair
-        MERGE (a:Person {name: pair[0]})
-        MERGE (a)-[:KNOWS]->(friend:Person {name: pair[1]})
-        """, pairs=input_list,
-        database_="neo4j",
-    )
+    try:
+        input_list = [("Arthur", "Guinevre"),
+                      ("Arthur", "Lancelot"),
+                      ("Arthur", "Merlin")]
+        driver.execute_query("""
+            UNWIND $pairs AS pair
+            MERGE (a:Person {name: pair[0]})
+            MERGE (a)-[:KNOWS]->(friend:Person {name: pair[1]})
+            """, pairs=input_list,
+            database_="neo4j",
+        )
 
-    # Create a film
-    driver.execute_query("""
-        MERGE (film:Film {title: $title})
-        MERGE (liker:Person {name: $person_name})
-        MERGE (liker)-[:LIKES]->(film)
-        """, title="Wall-E", person_name="Arthur",
-        database_="neo4j",
-    )
+        # Create a film
+        driver.execute_query("""
+            MERGE (film:Film {title: $title})
+            MERGE (liker:Person {name: $person_name})
+            MERGE (liker)-[:LIKES]->(film)
+            """, title="Wall-E", person_name="Arthur",
+            database_="neo4j",
+        )
 
-    # Query to get a graphy result
-    graph_result = driver.execute_query("""
-        MATCH (a:Person {name: $name})-[r]-(b)
-        RETURN a, r, b
-        """, name="Arthur",
-        result_transformer_=neo4j.Result.graph,
-    )
+        # Query to get a graphy result
+        graph_result = driver.execute_query("""
+            MATCH (a:Person {name: $name})-[r]-(b)
+            RETURN a, r, b
+            """, name="Arthur",
+            result_transformer_=neo4j.Result.graph,
+        )
 
-    # Draw graph
-    nodes_text_properties = {  # what property to use as text for each node
-        "Person": "name",
-        "Film": "title",
-    }
-    visualize_result(graph_result, nodes_text_properties)
+        # Draw graph
+        nodes_text_properties = {  # what property to use as text for each node
+            "Person": "name",
+            "Film": "title",
+        }
+        visualize_result(graph_result, nodes_text_properties)
+        
+    except Exception as e:
+        print(f"Exception Occured: {e}")
 
 if __name__ == "__main__":
     with GraphDatabase.driver(URI, auth=AUTH) as driver: 
