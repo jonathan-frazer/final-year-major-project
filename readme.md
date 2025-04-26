@@ -28,7 +28,7 @@
 1. First stop the container `docker stop <CONTAINER-ID>`
 2. Then remove the container `docker rm <CONTAINER-ID>`
 
-# Neo4j - Docker
+# Neo4j
 ## Connecting/Executing Database
 1. `graph_test/init.py` Contains the code to connect to the database 
 2. Once you have connected to the database, you can run queries using Cypher and the method `driver.execute_query()`
