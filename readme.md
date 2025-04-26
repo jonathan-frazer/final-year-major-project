@@ -14,15 +14,16 @@
 # Neo4j - Docker
 ## Installation
 1. Install Docker on your Machine
-2. Open your terminal and type in `docker pull neo4j` and ENTER. It should download 'neo4j:latest'
-
-## Running
-1. Type in `docker run -p7474:7474 -p7687:7687 -d --env NEO4J_AUTH=neo4j/gohome123 neo4j:latest` and ENTER
+2. Double-Click and Open Docker
+3. Open your terminal and type in `docker pull neo4j` and ENTER. It should download 'neo4j:latest'
+4. Type in `docker run -p7474:7474 -p7687:7687 -d --env NEO4J_AUTH=neo4j/gohome123 neo4j:latest` and ENTER
    It creates a docker instances at port 7474 and 7687 as a background process with
    username: "neo4j"
    password: "gohome"
-2. Check to see if docker is running the image using `docker ps``
-3. Go to `http://localhost:7474/` in your browser and type in the password to login to Neo4j
+5. Check to see if docker is running the image using `docker ps``
+6. Go to `http://localhost:7474/` in your browser and type in the password to login to Neo4j
+
+To Restart it, just open docker and start your container
 
 ## Deleting container
 1. First stop the container `docker stop <CONTAINER-ID>`
