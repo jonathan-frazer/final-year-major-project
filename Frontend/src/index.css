@@ -1,0 +1,71 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 25% 10%;
+    --foreground: 30 50% 97%;
+
+    --card: 225 22% 15%;
+    --card-foreground: 30 50% 97%;
+
+    --popover: 225 22% 15%;
+    --popover-foreground: 30 50% 97%;
+
+    --primary: 24 94% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 225 15% 20%;
+    --secondary-foreground: 30 50% 97%;
+
+    --muted: 225 15% 20%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 24 94% 53%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 225 15% 20%;
+    --input: 225 15% 20%;
+    --ring: 24 94% 53%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 225 28% 12%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 24 94% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 20% 16%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 225 22% 18%;
+    --sidebar-ring: 24 94% 53%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .file-item {
+    @apply flex items-center gap-2 px-2 py-1.5 hover:bg-doc-dark/50 rounded-md cursor-pointer transition-all;
+  }
+  
+  .file-item.active {
+    @apply bg-doc-dark text-doc-orange;
+  }
+  
+  .directory-item {
+    @apply flex items-center gap-2 px-2 py-1.5 hover:bg-doc-dark/50 rounded-md cursor-pointer transition-all font-medium;
+  }
+}
