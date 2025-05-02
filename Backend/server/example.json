@@ -1,0 +1,66 @@
+{
+    "name": "root",
+    "type": "directory",
+    "children": [
+      {
+        "name": "src",
+        "type": "directory",
+        "children": [
+          {
+            "name": "components",
+            "type": "directory",
+            "children": [
+              {
+                "name": "Button.tsx",
+                "type": "file",
+                "content": "export const Button = () => {\n  return <button className=\"btn\">Click me</button>\n};"
+              },
+              {
+                "name": "Rajendran.tsx",
+                "type": "file",
+                "content": "export const Card = ({ children }) => {\n  return <div className=\"card\">{children}</div>\n};"
+              }
+            ]
+          },
+          {
+            "name": "utils",
+            "type": "directory",
+            "children": [
+              {
+                "name": "format.ts",
+                "type": "file",
+                "content": "export const formatDate = (date) => {\n  return new Date(date).toLocaleDateString();\n};"
+              }
+            ]
+          },
+          {
+            "name": "App.tsx",
+            "type": "file",
+            "content": "import React from \"react\";\n\nexport const App = () => {\n  return <div>Hello world</div>;\n};"
+          },
+          {
+            "name": "index.ts",
+            "type": "file",
+            "content": "import { App } from \"./App\";\n\nexport default App;"
+          }
+        ]
+      },
+      {
+        "name": "docs",
+        "type": "directory",
+        "children": [
+          {
+            "name": "README.md",
+            "type": "file",
+            "content": "# Documentation\n\nThis is the documentation for the project."
+          }
+        ]
+      },
+      {
+        "name": "package.json",
+        "type": "file",
+        "content": "{\n  \"name\": \"example-project\",\n  \"version\": \"1.0.0\",\n  \"dependencies\": {\n    \"react\": \"^18.0.0\"\n  }\n}"
+      }
+    ]
+  }
+  
