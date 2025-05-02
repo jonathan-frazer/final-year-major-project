@@ -2,3 +2,4 @@
 /lib
 /network.html
 /server/uploads
+*/__pycache__

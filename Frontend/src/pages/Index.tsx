@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 import Header from "@/components/Header";
 import UploadZone from "@/components/UploadZone";
@@ -5,6 +6,11 @@ import DirectoryExplorer, { FileNode } from "@/components/DirectoryExplorer";
 import FilePreview from "@/components/FilePreview";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 
 const Index: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -40,23 +46,34 @@ const Index: React.FC = () => {
               />
             </div>
           ) : (
-            <div className="flex-1 flex overflow-hidden">
-              <div className="w-64 border-r border-border overflow-y-auto">
-                <div className="p-3 bg-sidebar-accent text-sidebar-foreground font-medium">
-                  Project Explorer
+            <ResizablePanelGroup
+              direction="horizontal"
+              className="flex-1 overflow-hidden"
+            >
+              <ResizablePanel defaultSize={20} minSize={15} maxSize={40}>
+                <div className="h-full flex flex-col">
+                  <div className="p-3 bg-sidebar-accent text-sidebar-foreground font-medium">
+                    Project Explorer
+                  </div>
+                  <Separator />
+                  <div className="flex-1 overflow-hidden">
+                    <DirectoryExplorer
+                      data={directoryData}
+                      onFileSelect={handleFileSelect}
+                      selectedFile={selectedFile}
+                    />
+                  </div>
                 </div>
-                <Separator />
-                <DirectoryExplorer
-                  data={directoryData}
-                  onFileSelect={handleFileSelect}
-                  selectedFile={selectedFile}
-                />
-              </div>
+              </ResizablePanel>
 
-              <div className="flex-1 overflow-auto p-4">
-                <FilePreview file={selectedFile} />
-              </div>
-            </div>
+              <ResizableHandle withHandle />
+
+              <ResizablePanel defaultSize={80}>
+                <div className="h-full p-4">
+                  <FilePreview file={selectedFile} />
+                </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           )}
         </main>
       </div>

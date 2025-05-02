@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
 import zipfile
 from flask_cors import CORS
-import json
+import os
+import shutil
+from directory_handler import get_directory_structure
 
 app = Flask(__name__)
 CORS(app)
@@ -10,13 +12,26 @@ CORS(app)
 def code_upload():
     zip_file = request.files['file']
     zip_ref = zipfile.ZipFile(zip_file, 'r')
-    zip_ref.extractall('uploads/')
+    zip_ref.extractall('server/uploads/')
     zip_ref.close()
-    with open('example.json') as f:
-        structure = json.load(f)
-        return jsonify({'structure': structure}), 200
+
+    #with open('server/example_schema.json') as f:
+    #    structure = json.load(f)
+    #    return jsonify({'structure': structure}), 200
     
-    return jsonify({'error': 'Could not Open JSON File'}), 400
+    try:
+        # Specify the directory you want to traverse
+        directory_structure = get_directory_structure(f"server/uploads/{zip_file.filename.replace('.zip','')}")
+        
+        #Delete once uploaded
+        for child in os.listdir('server/uploads'):
+            shutil.rmtree(f'server/uploads/{child}')
+        
+        # Return the Structure in JSON Format
+        return jsonify({'structure': directory_structure}), 200
+    except Exception as e:
+        print(e)
+        return jsonify({'error': 'Could not Open JSON File'}), 400
 
 if __name__ == '__main__':
     app.run()
