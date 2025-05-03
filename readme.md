@@ -14,3 +14,4 @@ And (for now) only the Backend 'Server' Must be running.
 
 1. cd to `Backend`
 2. Follow the instructions in it's readme.md file on how to activate the server
+3. PLEASE change the API Key for Gemini in config.yaml

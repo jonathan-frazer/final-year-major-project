@@ -33,6 +33,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
   };
 
   const formattedContent = formatContent(file.content);
+  const isDocumentation = file.type === "documentation";
 
   // Simple code syntax highlighting based on file extension
   const getLanguageClass = (fileName: string) => {
@@ -70,9 +71,20 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
           className="flex-1 overflow-y-auto h-full w-full"
           style={{ maxHeight: `80vh` }}
         >
-          <pre className={`p-4 text-sm ${getLanguageClass(file.name)}`}>
-            <code>{formattedContent}</code>
-          </pre>
+          {!isDocumentation && (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="animate-spin mr-2 inline-block w-32 h-32 border-8 border-t-8 border-transparent border-t-white rounded-full" />
+            </div>
+          )}
+          {isDocumentation && (
+            <pre
+              className={`p-4 text-sm whitespace-pre-wrap break-words ${getLanguageClass(
+                file.name
+              )}`}
+            >
+              <code>{formattedContent}</code>
+            </pre>
+          )}
         </ScrollArea>
       </CardContent>
     </Card>

@@ -45,16 +45,22 @@ def load_vectordb(embeddings, collection_name="default"):
     persistent_client = chromadb.PersistentClient("chroma_db")
     return Chroma(client=persistent_client, collection_name=collection_name, embedding_function=embeddings)
 
-def invoke_prompt():
+def invoke_llm(code_content):
     llm = GeminiFlashLLM()
-    result = llm.invoke("""
-                        Keep your response <100 tokens.
-                        Explain what a neural network is
-                        """)  # Pass the query and retrieved data
+    result = llm.invoke(f"""Explain the Purpose of the Following Code and give an Example wherever relevant. 
+                        Follow the Prescribed Format for your response:-
+                        /*
+                        PURPOSE: <code purpose, plain string>\n
+                        EXAMPLE: <code example if applicable, multi-line string>\n
+                        RELATED CLASSES: [class1, class2 .. classn]
+                        */
+                        Comment end and comment begin depends on the language. 
+                        Swap it out based on the detected Language. For example for Python just use docstrings.
+                        
+                        **DO NOT Include Any Code in the response**
+                        ```{code_content}```""")  # Pass the query and retrieved data
     
-    output_filename = "generated_output.txt"
-    with open(output_filename, "w") as f:
-        f.write(result)
+    return result
 
 if __name__ == "__main__":
-    invoke_prompt()
+    invoke_llm()

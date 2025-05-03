@@ -12,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface FileNode {
   name: string;
-  type: "file" | "directory";
+  type: "file" | "directory" | "documentation";
   content?: string;
   children?: FileNode[];
   path?: string; // Track the path for flattened view
@@ -40,7 +40,7 @@ const DirectoryExplorer: React.FC<DirectoryExplorerProps> = ({
     if (!node) return [];
 
     // Handle file node
-    if (node.type === "file") {
+    if (node.type === "file" || node.type === "documentation") {
       return [
         {
           ...node,
