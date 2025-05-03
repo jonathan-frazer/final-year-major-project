@@ -9,6 +9,7 @@
 ## Install packages
 
 1. Run `pip install -r requirements.txt` to install the required packages on pulling a commit.
+2. Make sure to install `srcML` on your local Machine for the parsing or else this won't work
 
 ## Install packages responsibly
 
