@@ -3,7 +3,7 @@ import zipfile
 from flask_cors import CORS
 import os
 import shutil
-from directory_handler import get_directory_structure
+from directory_handler import directory_to_json
 
 app = Flask(__name__)
 CORS(app)
@@ -15,13 +15,11 @@ def code_upload():
     zip_ref.extractall('server/uploads/')
     zip_ref.close()
 
-    #with open('server/example_schema.json') as f:
-    #    structure = json.load(f)
-    #    return jsonify({'structure': structure}), 200
-    
+        
+
     try:
         # Specify the directory you want to traverse
-        directory_structure = get_directory_structure(f"server/uploads/{zip_file.filename.replace('.zip','')}")
+        directory_structure = directory_to_json(f"server/uploads/{zip_file.filename.replace('.zip','')}")
         
         #Delete once uploaded
         for child in os.listdir('server/uploads'):
