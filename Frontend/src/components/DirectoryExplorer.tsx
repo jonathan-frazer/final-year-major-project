@@ -34,57 +34,86 @@ const DirectoryExplorer: React.FC<DirectoryExplorerProps> = ({
   // Process the directory tree to flatten packages according to IntelliJ style
   const processDirectoryTree = (
     node: FileNode,
-    currentPath: string = ""
+    currentPath: string = "",
+    flattenPackages: boolean = true
   ): FileNode[] => {
     if (!node) return [];
 
+    // Handle file node
     if (node.type === "file") {
-      const processedNode = {
-        ...node,
-        path: currentPath ? `${currentPath}/${node.name}` : node.name,
-      };
-      return [processedNode];
+      return [
+        {
+          ...node,
+          path: currentPath ? `${currentPath}/${node.name}` : node.name,
+        },
+      ];
     }
 
+    // Handle empty directory
     if (!node.children || node.children.length === 0) {
       return [];
     }
 
-    // When flattening is enabled
+    // Flatten logic for single-child directory chains
     if (flattenPackages) {
-      // Directories with a single file should be flattened
-      if (node.children.length === 1 && node.children[0].type === "file") {
-        const childNode = node.children[0];
-        const newPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-        const processedNode = {
-          ...childNode,
-          name: `${node.name}/${childNode.name}`,
-          path: newPath ? `${newPath}/${childNode.name}` : childNode.name,
-        };
-        return [processedNode];
+      let currentNode = node;
+      let names = [currentNode.name];
+      let path = currentPath;
+
+      while (
+        currentNode.type === "directory" &&
+        currentNode.children.length === 1 &&
+        currentNode.children[0].type === "directory"
+      ) {
+        currentNode = currentNode.children[0];
+        names.push(currentNode.name);
       }
-    }
 
-    // For directories with multiple items or when not flattening
-    const newPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-    const processedNode = { ...node, path: newPath };
+      const flattenedName = names.join("/");
+      const newPath = currentPath
+        ? `${currentPath}/${flattenedName}`
+        : flattenedName;
 
-    if (flattenPackages) {
-      // Process children and flatten where applicable
+      // Recurse on the final directory's children
       let processedChildren: FileNode[] = [];
-      node.children.forEach((child) => {
-        const childResults = processDirectoryTree(child, newPath);
-        processedChildren = [...processedChildren, ...childResults];
+      currentNode.children.forEach((child) => {
+        processedChildren.push(
+          ...processDirectoryTree(child, newPath, flattenPackages)
+        );
       });
 
-      // Replace children with processed ones
-      processedNode.children = processedChildren;
+      return [
+        {
+          ...currentNode,
+          name: flattenedName,
+          path: newPath,
+          children: processedChildren,
+        },
+      ];
     }
 
-    return [processedNode];
+    // Default (non-flattened) processing
+    const newPath = currentPath ? `${currentPath}/${node.name}` : node.name;
+    let processedChildren: FileNode[] = [];
+
+    node.children.forEach((child) => {
+      processedChildren.push(
+        ...processDirectoryTree(child, newPath, flattenPackages)
+      );
+    });
+
+    return [
+      {
+        ...node,
+        path: newPath,
+        children: processedChildren,
+      },
+    ];
   };
 
-  const processedData = data ? processDirectoryTree(data)[0] : null;
+  const processedData = data
+    ? processDirectoryTree(data, "", flattenPackages)[0]
+    : null;
 
   return (
     <div className="flex flex-col h-full">

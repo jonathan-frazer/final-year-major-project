@@ -6,14 +6,11 @@ import { json } from "stream/consumers";
 
 interface UploadZoneProps {
   onUploadComplete: (files: any) => void;
-  isLoading: boolean;
 }
 
-const UploadZone: React.FC<UploadZoneProps> = ({
-  onUploadComplete,
-  isLoading,
-}) => {
+const UploadZone: React.FC<UploadZoneProps> = ({ onUploadComplete }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -57,6 +54,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({
     formData.append("file", file);
 
     try {
+      setIsLoading(true);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       const response = await fetch("http://127.0.0.1:5000/api/code_upload", {
         method: "POST",
         body: formData,
@@ -76,98 +75,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({
       onUploadComplete(jsonResponse.structure);
     } catch (error) {
       console.error("Error uploading file:", error);
+      setIsLoading(false);
+
       toast({
         title: "Upload error",
         description: String(error),
         variant: "destructive",
       });
     }
-  };
-
-  const simulateBackendResponse = (file: File) => {
-    // This is just a mock - in a real app, we'd send the file to the backend
-    // and get back a proper response with the directory structure
-
-    setTimeout(() => {
-      const mockResponseData = {
-        name: "root",
-        type: "directory",
-        children: [
-          {
-            name: "src",
-            type: "directory",
-            children: [
-              {
-                name: "components",
-                type: "directory",
-                children: [
-                  {
-                    name: "Button.tsx",
-                    type: "file",
-                    content:
-                      'export const Button = () => {\n  return <button className="btn">Click me</button>\n};',
-                  },
-                  {
-                    name: "Card.tsx",
-                    type: "file",
-                    content:
-                      'export const Card = ({ children }) => {\n  return <div className="card">{children}</div>\n};',
-                  },
-                ],
-              },
-              {
-                name: "utils",
-                type: "directory",
-                children: [
-                  {
-                    name: "format.ts",
-                    type: "file",
-                    content:
-                      "export const formatDate = (date) => {\n  return new Date(date).toLocaleDateString();\n};",
-                  },
-                ],
-              },
-              {
-                name: "App.tsx",
-                type: "file",
-                content:
-                  'import React from "react";\n\nexport const App = () => {\n  return <div>Hello world</div>;\n};',
-              },
-              {
-                name: "index.ts",
-                type: "file",
-                content: 'import { App } from "./App";\n\nexport default App;',
-              },
-            ],
-          },
-          {
-            name: "docs",
-            type: "directory",
-            children: [
-              {
-                name: "README.md",
-                type: "file",
-                content:
-                  "# Documentation\n\nThis is the documentation for the project.",
-              },
-            ],
-          },
-          {
-            name: "package.json",
-            type: "file",
-            content:
-              '{\n  "name": "example-project",\n  "version": "1.0.0",\n  "dependencies": {\n    "react": "^18.0.0"\n  }\n}',
-          },
-        ],
-      };
-
-      onUploadComplete(mockResponseData);
-
-      toast({
-        title: "Upload complete",
-        description: `${file.name} processed successfully`,
-      });
-    }, 1500);
   };
 
   return (
@@ -192,7 +107,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({
           className="bg-doc-orange hover:bg-doc-orange/90 text-white"
           disabled={isLoading}
         >
-          {isLoading ? "Processing..." : "Select ZIP File"}
+          {isLoading ? (
+            <div className="flex items-center">
+              <span className="animate-spin mr-2 inline-block w-4 h-4 border-2 border-t-2 border-transparent border-t-white rounded-full"></span>
+              Processing...
+            </div>
+          ) : (
+            "Select ZIP File"
+          )}
         </Button>
         <input
           type="file"
