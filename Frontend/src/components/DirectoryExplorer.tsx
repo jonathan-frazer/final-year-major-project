@@ -130,7 +130,7 @@ const DirectoryExplorer: React.FC<DirectoryExplorerProps> = ({
 
       <ScrollArea
         className="flex-1 overflow-y-auto"
-        style={{ maxHeight: `77vh` }}
+        style={{ maxHeight: `70vh` }}
       >
         <div className="p-2">
           {processedData ? (

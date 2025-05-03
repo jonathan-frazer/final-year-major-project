@@ -5,6 +5,7 @@ import DirectoryExplorer, { FileNode } from "@/components/DirectoryExplorer";
 import FilePreview from "@/components/FilePreview";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import JSZip from "jszip";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -24,6 +25,8 @@ const Index: React.FC = () => {
       setSelectedFile(file);
     }
   };
+
+  console.log(directoryData);
 
   return (
     <SidebarProvider>
@@ -52,6 +55,45 @@ const Index: React.FC = () => {
                       onFileSelect={handleFileSelect}
                       selectedFile={selectedFile}
                     />
+                  </div>
+                  <div className="p-3 bg-sidebar-accent text-sidebar-foreground font-medium">
+                    <button
+                      className="w-full px-4 py-2 text-sm font-medium text-white bg-orange-700 rounded-md shadow-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-blue-200"
+                      onClick={() => {
+                        const zip = new JSZip();
+                        const directory = directoryData;
+
+                        const addFilesToZip = (node, currentPath = "") => {
+                          const nodePath = currentPath
+                            ? `${currentPath}/${node.name}`
+                            : node.name;
+
+                          if (node.type === "file") {
+                            zip.file(nodePath, node.content);
+                          } else if (
+                            node.type === "directory" &&
+                            node.children
+                          ) {
+                            node.children.forEach((child) => {
+                              addFilesToZip(child, nodePath);
+                            });
+                          }
+                        };
+
+                        addFilesToZip(directory);
+
+                        zip.generateAsync({ type: "blob" }).then((blob) => {
+                          const url = window.URL.createObjectURL(blob);
+                          const link = document.createElement("a");
+                          link.href = url;
+                          link.download = `${directory.name}.zip`;
+                          link.click();
+                          window.URL.revokeObjectURL(url);
+                        });
+                      }}
+                    >
+                      Download
+                    </button>
                   </div>
                 </div>
               </ResizablePanel>
