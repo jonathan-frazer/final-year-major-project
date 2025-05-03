@@ -3,3 +3,6 @@
 /network.html
 /server/uploads
 */__pycache__
+/config.yaml
+*.txt
+!requirements.txt
