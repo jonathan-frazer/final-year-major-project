@@ -1,0 +1,227 @@
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import google.generativeai as genai
+import yaml
+import os
+import time
+from typing import Optional, List
+from datetime import datetime
+
+# Load configuration
+try:
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    API_KEY = config.get("api_key")
+except FileNotFoundError:
+    API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise ValueError("Gemini API key not found in config.yaml or environment variables")
+
+# Configure Gemini
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+app = FastAPI(title="AI Code Header Generator", version="1.0.0")
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict this to your VS Code extension
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class CodeRequest(BaseModel):
+    content: str
+    filename: str
+    language: Optional[str] = None
+
+class HeaderComment(BaseModel):
+    purpose: str
+    example: str
+    related_classes: str
+    author: str = "AI Generated"
+    created: str
+
+class HeaderResponse(BaseModel):
+    success: bool
+    original_content: str
+    header_comment: HeaderComment
+    modified_content: str
+    language: str
+    filename: str
+
+def detect_language(filename: str) -> str:
+    """Detect programming language from file extension"""
+    ext = filename.lower().split('.')[-1]
+    language_map = {
+        'py': 'Python',
+        'java': 'Java',
+        'cpp': 'C++',
+        'c': 'C',
+        'cs': 'C#',
+        'js': 'JavaScript',
+        'ts': 'TypeScript',
+        'php': 'PHP'
+    }
+    return language_map.get(ext, 'Unknown')
+
+def get_comment_syntax(language: str) -> tuple[str, str]:
+    """Get comment syntax for the given language"""
+    syntax_map = {
+        'Python': ('"""', '"""'),      # Triple quotes for multiline
+        'Java': ('/*', '*/'),          # C-style multiline comments
+        'C++': ('/*', '*/'),           # C-style multiline comments
+        'C': ('/*', '*/'),             # C-style multiline comments
+        'C#': ('/*', '*/'),            # C-style multiline comments
+        'JavaScript': ('/*', '*/'),    # C-style multiline comments
+        'TypeScript': ('/*', '*/'),    # C-style multiline comments
+        'PHP': ('/*', '*/')            # C-style multiline comments
+    }
+    return syntax_map.get(language, ('/*', '*/'))
+
+def generate_header_comment(code_content: str, filename: str, language: str) -> HeaderComment:
+    """Generate AI header comment using structured output"""
+    
+    # Create the structured prompt
+    prompt = f"""Analyze this {language} code and generate a structured header comment.
+    
+    Code to analyze:
+    ```{language}
+    {code_content[:1500]}  # Limit to first 1500 chars to avoid token limits
+    ```
+    
+    Generate a JSON response with the following structure:
+    {{
+        "purpose": "Brief description of what the code does",
+        "example": "Multiline usage example. Use \\n for line breaks to show multiple lines of code or usage patterns. If not applicable, use 'N/A'",
+        "related_classes": "List of classes as comma-separated string or 'N/A' if none",
+        "author": "AI Generated",
+        "created": "{datetime.now().strftime('%Y-%m-%d')}"
+    }}
+    
+    IMPORTANT: 
+    - For related_classes, if there are multiple classes, format them as a comma-separated string like "Class1, Class2, Class3". Do NOT use arrays or lists.
+    - For examples, you can use \\n to create multiline examples that show proper usage patterns.
+    
+    Focus on being concise and accurate. Do not include any code in the response, only the JSON structure.
+    """
+    
+    try:
+        # Use Gemini's structured output
+        response = model.generate_content(prompt)
+        
+        # Try to parse the response as JSON
+        try:
+            import json
+            # Clean the response text to extract JSON
+            response_text = response.text.strip()
+            
+            # Find JSON content between ```json and ``` or just parse the whole response
+            if "```json" in response_text:
+                json_start = response_text.find("```json") + 7
+                json_end = response_text.find("```", json_start)
+                if json_end != -1:
+                    json_content = response_text[json_start:json_end].strip()
+                else:
+                    json_content = response_text[json_start:].strip()
+            else:
+                json_content = response_text
+            
+            # Parse the JSON and create HeaderComment object
+            parsed_data = json.loads(json_content)
+            
+            # Ensure related_classes is a string (convert list to comma-separated string if needed)
+            if 'related_classes' in parsed_data and isinstance(parsed_data['related_classes'], list):
+                parsed_data['related_classes'] = ', '.join(parsed_data['related_classes'])
+            
+            return HeaderComment(**parsed_data)
+            
+        except (json.JSONDecodeError, KeyError) as e:
+            # Fallback: create a basic header if JSON parsing fails
+            return HeaderComment(
+                purpose=f"Code analysis failed: {str(e)}",
+                example="N/A",
+                related_classes="N/A",
+                author="AI Generated",
+                created=datetime.now().strftime('%Y-%m-%d')
+            )
+            
+    except Exception as e:
+        return HeaderComment(
+            purpose=f"Header comment generation failed: {str(e)}",
+            example="N/A",
+            related_classes="N/A",
+            author="AI Generated",
+            created=datetime.now().strftime('%Y-%m-%d')
+        )
+
+def format_header_comment(header: HeaderComment, language: str) -> str:
+    """Format the header comment with proper syntax for the language"""
+    comment_start, comment_end = get_comment_syntax(language)
+    
+    # Create the multiline header comment
+    header_lines = [
+        f"PURPOSE: {header.purpose}",
+        f"EXAMPLE: {header.example.replace('\\n', '\n')}",  # Convert \n to actual line breaks
+        f"RELATED CLASSES: {header.related_classes}",
+        f"AUTHOR: {header.author}",
+        f"CREATED: {header.created}"
+    ]
+    
+    # Format as multiline comment
+    multiline_header = f"{comment_start}\n" + '\n'.join(header_lines) + f"\n{comment_end}"
+    
+    # Add NeuroDoc as a separate single-line comment below
+    if language == 'Python':
+        neurodoc_comment = "# NeuroDoc"
+    else:
+        neurodoc_comment = "// NeuroDoc"
+    
+    return f"{multiline_header}\n{neurodoc_comment}"
+
+@app.post("/api/generate-header", response_model=HeaderResponse)
+async def generate_header(request: CodeRequest) -> HeaderResponse:
+    """Generate AI header comment for a code file"""
+    try:
+        # Detect language if not provided
+        if not request.language:
+            request.language = detect_language(request.filename)
+        
+        # Generate structured header comment
+        header_comment = generate_header_comment(request.content, request.filename, request.language)
+        
+        # Format the header with proper comment syntax
+        formatted_header = format_header_comment(header_comment, request.language)
+        
+        # Return the modified content with header above the code
+        modified_content = f"{formatted_header}\n\n{request.content}"
+        
+        return HeaderResponse(
+            success=True,
+            original_content=request.content,
+            header_comment=header_comment,
+            modified_content=modified_content,
+            language=request.language,
+            filename=request.filename
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating header: {str(e)}")
+
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {"message": "AI Code Header Generator API", "status": "running"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "AI Code Header Generator"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
