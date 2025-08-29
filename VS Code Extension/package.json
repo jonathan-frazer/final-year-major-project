@@ -22,7 +22,7 @@
       },
       {
         "command": "aiHeaderCommenter.generateHeaderForCurrentFile",
-        "title": "Generate AI Header for Current File"
+        "title": "Call AI Documentor (Current File)"
       }
     ]
   },

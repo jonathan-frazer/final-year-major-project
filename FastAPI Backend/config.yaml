@@ -1,0 +1,13 @@
+# Server Configuration
+host: "0.0.0.0"
+port: 8000
+
+# CORS Configuration
+allowed_origins:
+  - "http://localhost:3000"
+  - "http://localhost:8080"
+  - "*" # For development only
+
+# LLM Configuration
+model_name: "gemini-2.0-flash"
+max_tokens: 1000

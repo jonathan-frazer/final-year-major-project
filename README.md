@@ -2,7 +2,47 @@
 
 An intelligent AI-powered code documentation assistant that automatically generates comprehensive header comments for your code files using Google Gemini 2.0 Flash LLM.
 
-## 🚀 **Project Overview**
+## 🚀 **Quick Start**
+
+### **1. Backend Setup**
+
+```bash
+cd "FastAPI Backend"
+pip install -r requirements.txt
+# Create your .env file with API key
+python create_env.py
+python main.py
+```
+
+### **2. Extension Installation**
+
+```bash
+cd "VS Code Extension"
+npm install
+npm run compile
+```
+
+### **3. Configuration**
+
+- Copy `config.yaml.example` to `config.yaml`
+- Run `python create_env.py` to create your `.env` file
+- Add your Google Gemini API key when prompted
+- Update host/port in `config.yaml` if needed
+
+## 📋 **Usage**
+
+### **VS Code Commands**
+
+1. **Call AI Documentor (Workspace)** - Process entire workspace
+2. **Call AI Documentor (Current File)** - Process active editor
+
+### **API Endpoints**
+
+- `POST /api/generate-header` - Generate header for code file
+- `GET /` - Health check
+- `GET /health` - Detailed health status
+
+## 🏗️ **Project Overview**
 
 This project consists of two main components:
 
@@ -17,6 +57,7 @@ AI Header Commenter/
 │   ├── main.py              # Core API logic
 │   ├── requirements.txt     # Python dependencies
 │   ├── config.yaml         # Configuration (API keys, etc.)
+│   ├── create_env.py       # Environment setup helper
 │   └── README.md           # Backend documentation
 ├── VS Code Extension/       # VS Code extension
 │   ├── src/extension.ts    # Extension logic
@@ -30,7 +71,7 @@ AI Header Commenter/
 
 ### **AI-Powered Documentation**
 
-- **Comprehensive Headers**: PURPOSE, EXAMPLE, RELATED CLASSES, AUTHOR, CREATED
+- **Streamlined Headers**: PURPOSE, EXAMPLE, RELATED CLASSES
 - **Multiline Examples**: Support for detailed usage patterns with `\n` line breaks
 - **Language-Aware**: Supports 8 major OOP languages with proper comment syntax
 - **Smart Detection**: Prevents overwriting existing AI-generated headers
@@ -60,56 +101,21 @@ AI Header Commenter/
 | TypeScript | `.ts`     | `/* Multiline */` + `// NeuroDoc` |
 | PHP        | `.php`    | `/* Multiline */` + `// NeuroDoc` |
 
-## 🚀 **Quick Start**
-
-### **1. Backend Setup**
-
-```bash
-cd "FastAPI Backend"
-pip install -r requirements.txt
-python main.py
-```
-
-### **2. Extension Installation**
-
-```bash
-cd "VS Code Extension"
-npm install
-npm run compile
-```
-
-### **3. Configuration**
-
-- Copy `config.yaml.example` to `config.yaml`
-- Add your Google Gemini API key
-- Update host/port if needed
-
-## 📋 **Usage**
-
-### **VS Code Commands**
-
-1. **Generate AI Header Comments** - Process entire workspace
-2. **Generate Header for Current File** - Process active editor
-
-### **API Endpoints**
-
-- `POST /api/generate-header` - Generate header for code file
-- `GET /` - Health check
-- `GET /health` - Detailed health status
-
 ## 🔒 **Security & Configuration**
 
 ### **Important: API Keys**
 
-- **NEVER commit `config.yaml`** - Contains sensitive API keys
-- Use `.env` files for local development
+- **NEVER commit `.env` files** - Contains sensitive API keys
+- **NEVER commit `config.yaml`** - Contains server configuration
+- API keys are now stored in environment variables (more secure)
 - The `.gitignore` file is configured to protect sensitive data
 
 ### **Protected Files**
 
 The `.gitignore` file automatically excludes:
 
-- Configuration files with API keys
+- Environment files with API keys (.env, .env.\*)
+- Configuration files (config.yaml)
 - Dependencies and build artifacts
 - Cache and temporary files
 - IDE-specific files
@@ -119,9 +125,13 @@ The `.gitignore` file automatically excludes:
 
 ### **Backend Testing**
 
-```powershell
+```bash
 cd "FastAPI Backend"
-.\test_streamlined.ps1
+python main.py
+# Test with curl or Postman
+curl -X POST "http://localhost:8000/api/generate-header" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "def hello(): print(\"Hello World\")", "filename": "test.py"}'
 ```
 
 ### **Extension Testing**

@@ -7,28 +7,30 @@ import os
 import time
 from typing import Optional, List
 from datetime import datetime
+from dotenv import load_dotenv
+import json
+import re
 
-# Load configuration
-try:
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
-    API_KEY = config.get("api_key")
-except FileNotFoundError:
-    API_KEY = os.getenv("GEMINI_API_KEY")
+# Load environment variables from .env file
+load_dotenv()
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
 
-if not API_KEY:
-    raise ValueError("Gemini API key not found in config.yaml or environment variables")
+# Get API key from environment variable
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY environment variable not found. Please set it in your .env file.")
 
 # Configure Gemini
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel(config["model_name"])
 
-app = FastAPI(title="AI Code Header Generator", version="1.0.0")
+app = FastAPI(title="AI Header Commenter API", version="1.0.0")
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this to your VS Code extension
+    allow_origins=["*"],  # Configure this properly for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,8 +45,6 @@ class HeaderComment(BaseModel):
     purpose: str
     example: str
     related_classes: str
-    author: str = "AI Generated"
-    created: str
 
 class HeaderResponse(BaseModel):
     success: bool
@@ -98,9 +98,7 @@ def generate_header_comment(code_content: str, filename: str, language: str) -> 
     {{
         "purpose": "Brief description of what the code does",
         "example": "Multiline usage example. Use \\n for line breaks to show multiple lines of code or usage patterns. If not applicable, use 'N/A'",
-        "related_classes": "List of classes as comma-separated string or 'N/A' if none",
-        "author": "AI Generated",
-        "created": "{datetime.now().strftime('%Y-%m-%d')}"
+        "related_classes": "List of classes as comma-separated string or 'N/A' if none"
     }}
     
     IMPORTANT: 
@@ -116,7 +114,6 @@ def generate_header_comment(code_content: str, filename: str, language: str) -> 
         
         # Try to parse the response as JSON
         try:
-            import json
             # Clean the response text to extract JSON
             response_text = response.text.strip()
             
@@ -145,18 +142,14 @@ def generate_header_comment(code_content: str, filename: str, language: str) -> 
             return HeaderComment(
                 purpose=f"Code analysis failed: {str(e)}",
                 example="N/A",
-                related_classes="N/A",
-                author="AI Generated",
-                created=datetime.now().strftime('%Y-%m-%d')
+                related_classes="N/A"
             )
             
     except Exception as e:
         return HeaderComment(
             purpose=f"Header comment generation failed: {str(e)}",
             example="N/A",
-            related_classes="N/A",
-            author="AI Generated",
-            created=datetime.now().strftime('%Y-%m-%d')
+            related_classes="N/A"
         )
 
 def format_header_comment(header: HeaderComment, language: str) -> str:
@@ -167,9 +160,7 @@ def format_header_comment(header: HeaderComment, language: str) -> str:
     header_lines = [
         f"PURPOSE: {header.purpose}",
         f"EXAMPLE: {header.example.replace('\\n', '\n')}",  # Convert \n to actual line breaks
-        f"RELATED CLASSES: {header.related_classes}",
-        f"AUTHOR: {header.author}",
-        f"CREATED: {header.created}"
+        f"RELATED CLASSES: {header.related_classes}"
     ]
     
     # Format as multiline comment

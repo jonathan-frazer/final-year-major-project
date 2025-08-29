@@ -31,7 +31,7 @@ const IGNORED_EXTENSIONS = [
 // Directories to ignore
 const IGNORED_DIRECTORIES = [
   'node_modules', '.git', '.vscode', 'dist', 'build', 'out',
-  'target', 'bin', 'obj', '.vs', '.idea', '.cache'
+  'target', 'bin', 'obj', '.vs', '.idea', '.cache','venv'
 ];
 
 // API Configuration
@@ -42,8 +42,6 @@ interface HeaderComment {
   purpose: string;
   example: string;
   related_classes: string;
-  author: string;
-  created: string;
 }
 
 interface AIResponse {
@@ -114,7 +112,7 @@ export function activate(context: vscode.ExtensionContext) {
         progress.report({ message: 'Workspace documentation generation completed!' });
         
         // Show final results
-        const message = `AI Documentation completed!\n✅ Success: ${successCount}\n❌ Errors: ${errorCount}`;
+        const message = `AI Documentation completed!\n❌ Errors: ${errorCount}\n✅ Success: ${successCount}`;
         vscode.window.showInformationMessage(message);
       });
 

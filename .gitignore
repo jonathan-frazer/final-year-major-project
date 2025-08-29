@@ -232,10 +232,11 @@ typings/
 # ===== Project Specific =====
 
 # Configuration files with sensitive data
-# Note: config.yaml contains API keys - keep this ignored for security
-config.yaml
 .env
 *.env
+.env.local
+.env.development
+.env.production
 
 # API Keys and secrets
 secrets/
@@ -378,4 +379,3 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
-FastAPI Backend/config.yaml
