@@ -8,9 +8,11 @@ An intelligent AI-powered code documentation assistant that automatically genera
 
 ```bash
 cd "FastAPI Backend"
-source .venv/Scripts/Activate
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
+OR
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 In the Backend add a .env file with the following contents

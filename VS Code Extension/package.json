@@ -34,7 +34,7 @@
       },
       {
         "command": "aiHeaderCommenter.clearAIDocumentationWorkspace",
-        "title": "Clear AI Documentation (Workspace)"
+        "title": "Clear AI Documentation (Entire Workspace)"
       },
       {
         "command": "aiHeaderCommenter.clearAIDocumentationCurrentFile",
