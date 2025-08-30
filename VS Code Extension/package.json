@@ -10,19 +10,39 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:aiHeaderCommenter.callAIDocumentor",
-    "onCommand:aiHeaderCommenter.generateHeaderForCurrentFile"
+    "onCommand:aiHeaderCommenter.generateAIDocumentationWorkspace",
+    "onCommand:aiHeaderCommenter.generateAIDocumentationCurrentFile",
+    "onCommand:aiHeaderCommenter.generateAIDocumentationCurrentFolder",
+    "onCommand:aiHeaderCommenter.clearAIDocumentationWorkspace",
+    "onCommand:aiHeaderCommenter.clearAIDocumentationCurrentFile",
+    "onCommand:aiHeaderCommenter.clearAIDocumentationCurrentFolder"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "aiHeaderCommenter.callAIDocumentor",
-        "title": "Call AI Documentor (Workspace)"
+        "command": "aiHeaderCommenter.generateAIDocumentationWorkspace",
+        "title": "Call AI Documentor (Entire Workspace)"
       },
       {
-        "command": "aiHeaderCommenter.generateHeaderForCurrentFile",
+        "command": "aiHeaderCommenter.generateAIDocumentationCurrentFile",
         "title": "Call AI Documentor (Current File)"
+      },
+      {
+        "command": "aiHeaderCommenter.generateAIDocumentationCurrentFolder",
+        "title": "Call AI Documentor (Current Folder)"
+      },
+      {
+        "command": "aiHeaderCommenter.clearAIDocumentationWorkspace",
+        "title": "Clear AI Documentation (Workspace)"
+      },
+      {
+        "command": "aiHeaderCommenter.clearAIDocumentationCurrentFile",
+        "title": "Clear AI Documentation (Current File)"
+      },
+      {
+        "command": "aiHeaderCommenter.clearAIDocumentationCurrentFolder",
+        "title": "Clear AI Documentation (Current Folder)"
       }
     ]
   },
