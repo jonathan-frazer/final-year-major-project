@@ -4,6 +4,7 @@ import re
 import ast
 import textwrap
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Set
 
@@ -328,6 +329,15 @@ class Embedder:
         else:
             raise ValueError("EMBEDDING_BACKEND must be 'local' or 'openai'")
 
+    def _model_id(self) -> str:
+        if self.backend == "local":
+            return "all-MiniLM-L6-v2"
+        return getattr(self, "model_name", "unknown")
+
+    def cache_key_for_text(self, text: str) -> str:
+        h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"{self.backend}:{self._model_id()}:{self.dim}:{h}"
+
     def embed(self, texts: List[str]) -> List[List[float]]:
         if self.backend == "local":
             return self.model.encode(texts, show_progress_bar=False, normalize_embeddings=True).tolist()
@@ -345,10 +355,79 @@ class GraphRAGEmbedderAdapter:
         return self._base.embed([text])[0]
 
 
+class EmbeddingCache:
+    """JSON file-backed cache for embeddings. Keyed by model+text hash."""
+    def __init__(self, path: str, max_entries: int = 200000, flush_interval: int = 50):
+        self.path = path
+        self.max_entries = max_entries
+        self.flush_interval = flush_interval
+        self._data: Dict[str, List[float]] = {}
+        self._order: List[str] = []  # simple FIFO for eviction
+        self._dirty = 0
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, "r", encoding="utf-8") as f:
+                    obj = json.load(f)
+                    if isinstance(obj, dict):
+                        # ensure values are lists of floats
+                        self._data = {k: list(map(float, v)) for k, v in obj.items() if isinstance(v, list)}
+                        self._order = list(self._data.keys())
+        except Exception:
+            # Corrupt cache; start fresh
+            self._data = {}
+            self._order = []
+
+    def flush(self) -> None:
+        try:
+            tmp = self.path + ".tmp"
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._data, f)
+            try:
+                os.replace(tmp, self.path)
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except Exception:
+                        pass
+            self._dirty = 0
+        except Exception:
+            # ignore flush errors
+            pass
+
+    def get(self, key: str) -> Optional[List[float]]:
+        try:
+            return self._data.get(key)
+        except Exception:
+            return None
+
+    def set(self, key: str, vec: List[float]) -> None:
+        if key in self._data:
+            self._data[key] = vec
+            return
+        # Evict if necessary
+        if len(self._order) >= self.max_entries:
+            old = self._order.pop(0)
+            try:
+                del self._data[old]
+            except KeyError:
+                pass
+        self._data[key] = vec
+        self._order.append(key)
+        self._dirty += 1
+        if self._dirty >= self.flush_interval:
+            self.flush()
+
+
 class Neo4jWriter:
-    def __init__(self, uri: str, user: str, pwd: str, embedder: Embedder):
+    def __init__(self, uri: str, user: str, pwd: str, embedder: Embedder, emb_cache: Optional["EmbeddingCache"] = None):
         self.driver = GraphDatabase.driver(uri, auth=(user, pwd))
         self.embedder = embedder
+        self.emb_cache = emb_cache
         self.ensure_schema()
 
     def close(self):
@@ -427,7 +506,17 @@ class Neo4jWriter:
 
     def _emb(self, text: str) -> List[float]:
         try:
-            return self.embedder.embed([text])[0]
+            # Try cache first
+            if self.emb_cache is not None:
+                key = self.embedder.cache_key_for_text(text)
+                cached = self.emb_cache.get(key)
+                if cached is not None and isinstance(cached, list) and len(cached) == getattr(self.embedder, 'dim', len(cached)):
+                    return cached
+            vec = self.embedder.embed([text])[0]
+            if self.emb_cache is not None:
+                key = self.embedder.cache_key_for_text(text)
+                self.emb_cache.set(key, vec)
+            return vec
         except Exception:
             # Fallback to zero vector to avoid failing sync when embeddings backend is unavailable
             return [0.0] * getattr(self.embedder, 'dim', 384)
@@ -516,6 +605,8 @@ class GraphService:
         self.writer: Optional[Neo4jWriter] = None
         self.workspaces_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "server_workspaces"))
         os.makedirs(self.workspaces_root, exist_ok=True)
+        # Embedding cache stored across workspaces
+        self.emb_cache = EmbeddingCache(os.path.join(self.workspaces_root, "_embed_cache.v1.json"))
         # Load tunables from config.yaml if present
         self.conf = {
             "graphrag": {
@@ -543,7 +634,7 @@ class GraphService:
     def _ensure_writer(self) -> None:
         if self.writer is None:
             self._ensure_embedder()
-            self.writer = Neo4jWriter(self.uri, self.user, self.pwd, self.embedder)
+            self.writer = Neo4jWriter(self.uri, self.user, self.pwd, self.embedder, self.emb_cache)
 
     def _ws_dir(self, workspace_id: str) -> str:
         d = os.path.join(self.workspaces_root, workspace_id)
@@ -687,6 +778,12 @@ class GraphService:
 
         if touched or deleted:
             self.writer.link_calls(workspace_id)
+            # Best-effort flush of embedding cache after a batch sync
+            try:
+                if hasattr(self, "emb_cache") and self.emb_cache is not None:
+                    self.emb_cache.flush()
+            except Exception:
+                pass
 
         return {"added": added, "modified": modified, "deleted": deleted, "upserts": upserts}
 
