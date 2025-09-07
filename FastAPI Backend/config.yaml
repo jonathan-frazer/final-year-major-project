@@ -11,3 +11,18 @@ allowed_origins:
 # LLM Configuration
 model_name: "gemini-2.0-flash"
 max_tokens: 1000
+
+# GraphRAG Configuration (tunable)
+graphrag:
+  # Number of items to retrieve for vector search (used in fallback and hints)
+  top_k: 8
+  # Fallback vector search k when GraphRAG LLM path is unavailable
+  fallback_top_k: 5
+  # Soft timeout in seconds for RAG operations (best-effort)
+  request_timeout_seconds: 60
+  # Max context tokens (hint for trimming, best-effort)
+  max_context_tokens: 8192
+  # Add a workspace scoping prelude in the prompt
+  prelude_enabled: true
+  # Restrict retrieval strictly to the active workspace
+  workspace_scope: true

@@ -1,11 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 import yaml
 import os
 import time
-from typing import Optional, List
+from typing import Optional, List, Dict, Literal
 from datetime import datetime
 from dotenv import load_dotenv
 import json
@@ -212,6 +212,109 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "AI Code Header Generator"}
+
+# ---------------- GraphRAG Integration ----------------
+try:
+    from graphrag_service import GraphService
+    _graph_service = GraphService()
+except Exception as _e:
+    _graph_service = None
+
+
+class ChangeItem(BaseModel):
+    path: str
+    status: Literal["added", "modified", "deleted"]
+    mode: Optional[Literal["full", "patch"]] = "full"
+    content: Optional[str] = None
+    patch: Optional[str] = None
+
+
+class SyncRequest(BaseModel):
+    workspaceId: str
+    changes: List[ChangeItem]
+    replace: Optional[bool] = False
+
+
+class SyncResponse(BaseModel):
+    success: bool
+    counts: Dict[str, int]
+
+
+class RagRequest(BaseModel):
+    question: str
+    workspaceId: Optional[str] = None
+
+
+class RagResponse(BaseModel):
+    success: bool
+    answer: str
+
+
+@app.get("/api/graph/status")
+async def graph_status():
+    if _graph_service is None:
+        raise HTTPException(status_code=500, detail="Graph service not initialized.")
+    try:
+        with _graph_service.writer.driver.session() as s:
+            c_files = s.run("MATCH (n:File) RETURN count(n) AS c").single()["c"]
+            c_classes = s.run("MATCH (n:Class) RETURN count(n) AS c").single()["c"]
+            c_funcs = s.run("MATCH (n:Function) RETURN count(n) AS c").single()["c"]
+        return {"files": c_files, "classes": c_classes, "functions": c_funcs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/graph/manifest")
+async def graph_manifest(workspaceId: str = Query(...)):
+    if _graph_service is None:
+        raise HTTPException(status_code=500, detail="Graph service not initialized.")
+    return {"manifest": _graph_service.compute_manifest(workspaceId)}
+
+
+@app.get("/api/graph/file")
+async def graph_file(workspaceId: str = Query(...), path: str = Query(...)):
+    if _graph_service is None:
+        raise HTTPException(status_code=500, detail="Graph service not initialized.")
+    content = _graph_service.get_file_content(workspaceId, path)
+    return {"content": content}
+
+
+@app.post("/api/graph/sync", response_model=SyncResponse)
+async def sync_graph(req: SyncRequest) -> SyncResponse:
+    if _graph_service is None:
+        raise HTTPException(status_code=500, detail="Graph service not initialized.")
+    try:
+        # Optional full replacement if extension switches to a different workspace
+        replace = False
+        try:
+            # Backwards-compatible: SyncRequest may not have 'replace'
+            replace = bool(getattr(req, 'replace', False))  # type: ignore
+        except Exception:
+            replace = False
+        if replace:
+            try:
+                _graph_service.clear_all()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to clear graph: {e}")
+        counts = _graph_service.apply_changes(req.workspaceId, [c.model_dump() for c in req.changes])
+        return SyncResponse(success=True, counts=counts)
+    except RuntimeError as e:
+        if str(e) == "NEO4J_UNAVAILABLE":
+            raise HTTPException(status_code=503, detail="Neo4j is not reachable at NEO4J_URI. Start Neo4j and retry.")
+        raise
+
+
+@app.post("/api/graph/rag", response_model=RagResponse)
+async def rag(req: RagRequest) -> RagResponse:
+    if _graph_service is None:
+        raise HTTPException(status_code=500, detail="Graph service not initialized.")
+    try:
+        ans = _graph_service.rag_answer(req.question, getattr(req, 'workspaceId', None))
+        return RagResponse(success=True, answer=ans)
+    except RuntimeError as e:
+        if str(e) == "NEO4J_UNAVAILABLE":
+            raise HTTPException(status_code=503, detail="Neo4j is not reachable at NEO4J_URI. Start Neo4j and retry.")
+        raise
 
 if __name__ == "__main__":
     import uvicorn

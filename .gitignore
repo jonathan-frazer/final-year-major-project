@@ -379,3 +379,4 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+server_workspaces/

@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { getAllFiles, isCodeFile, hasHeaderComment } from './utils';
 import { processFileWithAI } from './fileProcessor';
 import { AI_HEADER_IDENTIFIER } from './constants';
+import { syncGraph, runRag } from './graphService';
 
 /**
  * Command to generate AI documentation for the entire workspace
@@ -574,4 +575,44 @@ export async function clearAIDocumentationCurrentFolder(): Promise<void> {
     console.error('Error clearing headers from current folder:', error);
     vscode.window.showErrorMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+export async function syncGraphDatabase(): Promise<void> {
+  const ws = vscode.workspace.workspaceFolders;
+  if (!ws || ws.length === 0) {
+    vscode.window.showErrorMessage('No workspace folder found.');
+    return;
+  }
+  const root = ws[0].uri.fsPath;
+  const progressOptions = { location: vscode.ProgressLocation.Notification, title: 'Syncing Graph Database...', cancellable: false };
+  await vscode.window.withProgress(progressOptions, async () => {
+    try {
+      const counts = await syncGraph(root);
+      vscode.window.showInformationMessage(`Graph sync complete. +${counts.added} ~${counts.modified} -${counts.deleted}`);
+    } catch (e: any) {
+      vscode.window.showErrorMessage(`Graph sync failed: ${e?.message || e}`);
+    }
+  });
+}
+
+export async function runGraphRagCommand(): Promise<void> {
+  const ws = vscode.workspace.workspaceFolders;
+  if (!ws || ws.length === 0) {
+    vscode.window.showErrorMessage('No workspace folder found.');
+    return;
+  }
+  const root = ws[0].uri.fsPath;
+  const question = await vscode.window.showInputBox({ prompt: 'Enter your GraphRAG question', value: 'What is the purpose of this codebase? Summarize the flow.' });
+  if (!question) return;
+  const progressOptions = { location: vscode.ProgressLocation.Notification, title: 'Running GraphRAG...', cancellable: false };
+  await vscode.window.withProgress(progressOptions, async () => {
+    try {
+      const ans = await runRag(question);
+      const outPath = path.join(root, 'NeuroDoc.md');
+      await fs.promises.writeFile(outPath, ans ?? '', 'utf-8');
+      vscode.window.showInformationMessage('GraphRAG answer saved to NeuroDoc.md');
+    } catch (e: any) {
+      vscode.window.showErrorMessage(`GraphRAG failed: ${e?.message || e}`);
+    }
+  });
 }

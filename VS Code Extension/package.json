@@ -15,22 +15,24 @@
     "onCommand:aiHeaderCommenter.generateAIDocumentationCurrentFolder",
     "onCommand:aiHeaderCommenter.clearAIDocumentationWorkspace",
     "onCommand:aiHeaderCommenter.clearAIDocumentationCurrentFile",
-    "onCommand:aiHeaderCommenter.clearAIDocumentationCurrentFolder"
+    "onCommand:aiHeaderCommenter.clearAIDocumentationCurrentFolder",
+    "onCommand:aiHeaderCommenter.syncGraph",
+    "onCommand:aiHeaderCommenter.runGraphRag"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "aiHeaderCommenter.generateAIDocumentationWorkspace",
-        "title": "Call AI Documentor (Entire Workspace)"
+        "title": "Generate AI Header (Entire Workspace)"
       },
       {
         "command": "aiHeaderCommenter.generateAIDocumentationCurrentFile",
-        "title": "Call AI Documentor (Current File)"
+        "title": "Generate AI Header (Current File)"
       },
       {
         "command": "aiHeaderCommenter.generateAIDocumentationCurrentFolder",
-        "title": "Call AI Documentor (Current Folder)"
+        "title": "Generate AI Header (Current Folder)"
       },
       {
         "command": "aiHeaderCommenter.clearAIDocumentationWorkspace",
@@ -43,6 +45,14 @@
       {
         "command": "aiHeaderCommenter.clearAIDocumentationCurrentFolder",
         "title": "Clear AI Documentation (Current Folder)"
+      },
+      {
+        "command": "aiHeaderCommenter.syncGraph",
+        "title": "NeuroDoc: Sync Graph"
+      },
+      {
+        "command": "aiHeaderCommenter.runGraphRag",
+        "title": "NeuroDoc: Run GraphRAG"
       }
     ]
   },

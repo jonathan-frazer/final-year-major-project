@@ -5,7 +5,9 @@ import {
   generateAIDocumentationCurrentFolder,
   clearAIDocumentationWorkspace,
   clearAIDocumentationCurrentFile,
-  clearAIDocumentationCurrentFolder
+  clearAIDocumentationCurrentFolder,
+  syncGraphDatabase,
+  runGraphRagCommand
 } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -27,7 +29,9 @@ export function activate(context: vscode.ExtensionContext) {
     generateCurrentFolderCommand,
     clearWorkspaceCommand,
     clearCurrentFileCommand,
-    clearCurrentFolderCommand
+    clearCurrentFolderCommand,
+    vscode.commands.registerCommand('aiHeaderCommenter.syncGraph', syncGraphDatabase),
+    vscode.commands.registerCommand('aiHeaderCommenter.runGraphRag', runGraphRagCommand)
   );
 }
 
