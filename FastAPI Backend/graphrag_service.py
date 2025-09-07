@@ -6,6 +6,7 @@ import textwrap
 import hashlib
 import json
 from dataclasses import dataclass, field
+import tempfile
 from typing import List, Dict, Optional, Tuple, Set
 
 from dotenv import load_dotenv
@@ -130,6 +131,48 @@ def _extract_brace_block(source_text: str, open_brace_index: int) -> str:
         line_start = source_text.rfind('\n', 0, open_brace_index)
         line_start = 0 if line_start == -1 else line_start + 1
         return source_text[line_start:i]
+    return ""
+
+
+def _get_preceding_comment(src: str, start_index: int) -> str:
+    """Extract a doc-comment block immediately preceding start_index.
+    Supports /** ... */ (Java/C++), /// XML doc (C#), and stacked // lines.
+    """
+    try:
+        i = start_index
+        while i > 0 and src[i - 1].isspace():
+            i -= 1
+        end = src.rfind("*/", 0, i)
+        if end != -1:
+            start = src.rfind("/*", 0, end)
+            if start != -1 and src[end + 2:i].strip() == "":
+                return src[start:end + 2].strip()
+        # Fallback: stack of // or ///
+        lines = []
+        line_end = i
+        while True:
+            line_start = src.rfind('\n', 0, line_end - 1)
+            if line_start == -1:
+                candidate = src[:line_end]
+            else:
+                candidate = src[line_start + 1:line_end]
+            stripped = candidate.strip()
+            if stripped.startswith('///') or stripped.startswith('//'):
+                lines.append(stripped)
+                if line_start == -1:
+                    break
+                line_end = line_start
+                continue
+            if stripped == "":
+                if line_start == -1:
+                    break
+                line_end = line_start
+                continue
+            break
+        if lines:
+            return "\n".join(reversed(lines))
+    except Exception:
+        pass
     return ""
 
 
@@ -258,17 +301,61 @@ def _parse_java(path: str, repo_root: str) -> FileInfo:
         mod = m.group(1).split('.')[0]
         if mod:
             fi.imports.add(mod)
-    for cm in re.finditer(r"^\s*(public|private|protected)?\s*(abstract\s+|final\s+)?class\s+([A-Za-z0-9_]+)\b", src, flags=re.MULTILINE):
-        class_name = cm.group(3)
+    class_pat = re.compile(r"^\s*(?:@[A-Za-z0-9_\.]+\s*)*(?:public|private|protected)?(?:\s+(?:static|final|abstract))*\s*class\s+([A-Za-zA-Z_][A-Za-z0-9_]*)\b", re.MULTILINE)
+    for cm in class_pat.finditer(src):
+        class_name = cm.group(1)
         qual = f"{rel.replace(os.sep, '.')}.{class_name}"
-        fi.classes.append(ClassInfo(
+        cls_lineno = src[:cm.start()].count('\n') + 1
+        brace_pos = src.find('{', cm.end())
+        cls_body = _extract_brace_block(src, brace_pos) if brace_pos != -1 else ""
+        cls_doc = _get_preceding_comment(src, cm.start())
+        cls_source = cls_body[:2000] if cls_body else ""
+        cls_info = ClassInfo(
             name=class_name,
             qualname=qual,
-            lineno=src[:cm.start()].count('\n') + 1,
-            docstring="",
-            source="",
+            lineno=cls_lineno,
+            docstring=cls_doc,
+            source=cls_source,
             file_path=rel,
-        ))
+        )
+        if cls_body:
+            body_offset = brace_pos
+            meth_pattern = re.compile(r"^\s*(public|private|protected)(?:\s+(?:static|final|abstract|synchronized))*\s+[A-Za-z0-9_<>,\[\]\.?]+\s+([A-Za-zA-Z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{", re.MULTILINE)
+            for mm in meth_pattern.finditer(cls_body):
+                fun_name = mm.group(2)
+                fun_qual = f"{qual}.{fun_name}"
+                open_br = cls_body.find('{', mm.end() - 1)
+                fun_body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_doc = _get_preceding_comment(cls_body, mm.start()) or _get_preceding_comment(src, body_offset + mm.start())
+                sig = cls_body[mm.start():cls_body.find('{', mm.end() - 1)].strip()
+                snippet = (sig + "\n" + (fun_body[:1500] if fun_body else "")).strip()
+                fun_lineno = src[:body_offset + mm.start()].count('\n') + 1
+                cls_info.methods.append(FunctionInfo(
+                    name=fun_name,
+                    qualname=fun_qual,
+                    lineno=fun_lineno,
+                    docstring=fun_doc,
+                    source=snippet,
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+            ctor_pattern = re.compile(rf"^\s*(public|private|protected)(?:\s+(?:static|final|abstract|synchronized))*\s+{re.escape(class_name)}\s*\(([^)]*)\)\s*\{{", re.MULTILINE)
+            for cmc in ctor_pattern.finditer(cls_body):
+                sig = cls_body[cmc.start():cls_body.find('{', cmc.end() - 1)].strip()
+                open_br = cls_body.find('{', cmc.end() - 1)
+                body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_lineno = src[:body_offset + cmc.start()].count('\n') + 1
+                doc = _get_preceding_comment(cls_body, cmc.start()) or _get_preceding_comment(src, body_offset + cmc.start())
+                cls_info.methods.append(FunctionInfo(
+                    name=class_name,
+                    qualname=f"{qual}.{class_name}",
+                    lineno=fun_lineno,
+                    docstring=doc,
+                    source=(sig + "\n" + (body[:1200] if body else "")).strip(),
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+        fi.classes.append(cls_info)
     return fi
 
 
@@ -280,6 +367,61 @@ def _parse_csharp(path: str, repo_root: str) -> FileInfo:
         mod = m.group(1).split('.')[0]
         if mod:
             fi.imports.add(mod)
+    class_pat = re.compile(r"^\s*(?:\[[^\]]+\]\s*)*(?:public|private|protected|internal)?(?:\s+(?:static|partial|sealed|abstract))*\s*class\s+([A-Za-zA-Z_][A-Za-z0-9_]*)\b", re.MULTILINE)
+    for cm in class_pat.finditer(src):
+        class_name = cm.group(1)
+        qual = f"{rel.replace(os.sep, '.')}.{class_name}"
+        cls_lineno = src[:cm.start()].count('\n') + 1
+        brace_pos = src.find('{', cm.end())
+        cls_body = _extract_brace_block(src, brace_pos) if brace_pos != -1 else ""
+        cls_doc = _get_preceding_comment(src, cm.start())
+        cls_source = cls_body[:2000] if cls_body else ""
+        cls_info = ClassInfo(
+            name=class_name,
+            qualname=qual,
+            lineno=cls_lineno,
+            docstring=cls_doc,
+            source=cls_source,
+            file_path=rel,
+        )
+        if cls_body:
+            body_offset = brace_pos
+            meth_pattern = re.compile(r"^\s*(public|private|protected|internal)(?:\s+(?:static|virtual|override|async|sealed|abstract|partial))*\s+[A-Za-z0-9_<>,\[\]\.?]+\s+([A-Za-zA-Z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{", re.MULTILINE)
+            for mm in meth_pattern.finditer(cls_body):
+                fun_name = mm.group(2)
+                fun_qual = f"{qual}.{fun_name}"
+                open_br = cls_body.find('{', mm.end() - 1)
+                fun_body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_doc = _get_preceding_comment(cls_body, mm.start()) or _get_preceding_comment(src, body_offset + mm.start())
+                sig = cls_body[mm.start():cls_body.find('{', mm.end() - 1)].strip()
+                snippet = (sig + "\n" + (fun_body[:1500] if fun_body else "")).strip()
+                fun_lineno = src[:body_offset + mm.start()].count('\n') + 1
+                cls_info.methods.append(FunctionInfo(
+                    name=fun_name,
+                    qualname=fun_qual,
+                    lineno=fun_lineno,
+                    docstring=fun_doc,
+                    source=snippet,
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+            ctor_pattern = re.compile(rf"^\s*(public|private|protected|internal)(?:\s+(?:static|virtual|override|async|sealed|abstract|partial))*\s+{re.escape(class_name)}\s*\(([^)]*)\)\s*\{{", re.MULTILINE)
+            for cmc in ctor_pattern.finditer(cls_body):
+                sig = cls_body[cmc.start():cls_body.find('{', cmc.end() - 1)].strip()
+                open_br = cls_body.find('{', cmc.end() - 1)
+                body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_lineno = src[:body_offset + cmc.start()].count('\n') + 1
+                doc = _get_preceding_comment(cls_body, cmc.start()) or _get_preceding_comment(src, body_offset + cmc.start())
+                cls_info.methods.append(FunctionInfo(
+                    name=class_name,
+                    qualname=f"{qual}.{class_name}",
+                    lineno=fun_lineno,
+                    docstring=doc,
+                    source=(sig + "\n" + (body[:1200] if body else "")).strip(),
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+        fi.classes.append(cls_info)
     return fi
 
 
@@ -291,6 +433,79 @@ def _parse_cpp(path: str, repo_root: str) -> FileInfo:
         mod = m.group(1).split('/')[0]
         if mod:
             fi.imports.add(mod)
+    class_pat = re.compile(r"^\s*(?:template\s*<[^>]+>\s*)*(class|struct)\s+([A-Za-z_][A-Za-z0-9_]*)\b", re.MULTILINE)
+    for cm in class_pat.finditer(src):
+        class_name = cm.group(2)
+        qual = f"{rel.replace(os.sep, '.')}.{class_name}"
+        cls_lineno = src[:cm.start()].count('\n') + 1
+        brace_pos = src.find('{', cm.end())
+        cls_body = _extract_brace_block(src, brace_pos) if brace_pos != -1 else ""
+        cls_doc = _get_preceding_comment(src, cm.start())
+        cls_source = cls_body[:2000] if cls_body else ""
+        cls_info = ClassInfo(
+            name=class_name,
+            qualname=qual,
+            lineno=cls_lineno,
+            docstring=cls_doc,
+            source=cls_source,
+            file_path=rel,
+        )
+        if cls_body:
+            body_offset = brace_pos
+            meth_pattern = re.compile(r"^\s*[A-Za-z_][\w:<>,\s\*&]+\s+([A-Za-z_][\w:]*)\s*\(([^)]*)\)\s*(const\s*)?\{", re.MULTILINE)
+            for mm in meth_pattern.finditer(cls_body):
+                fun_name = mm.group(1).split('::')[-1]
+                fun_qual = f"{qual}.{fun_name}"
+                open_br = cls_body.find('{', mm.end() - 1)
+                fun_body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_doc = _get_preceding_comment(cls_body, mm.start()) or _get_preceding_comment(src, body_offset + mm.start())
+                sig = cls_body[mm.start():cls_body.find('{', mm.end() - 1)].strip()
+                snippet = (sig + "\n" + (fun_body[:1500] if fun_body else "")).strip()
+                fun_lineno = src[:body_offset + mm.start()].count('\n') + 1
+                cls_info.methods.append(FunctionInfo(
+                    name=fun_name,
+                    qualname=fun_qual,
+                    lineno=fun_lineno,
+                    docstring=fun_doc,
+                    source=snippet,
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+            ctor_pattern = re.compile(rf"^\s*~?{re.escape(class_name)}\s*\(([^)]*)\)\s*(const\s*)?\{{", re.MULTILINE)
+            for cmc in ctor_pattern.finditer(cls_body):
+                is_dtor = cls_body[cmc.start():cmc.end()].lstrip().startswith('~')
+                name = f"~{class_name}" if is_dtor else class_name
+                sig = cls_body[cmc.start():cls_body.find('{', cmc.end() - 1)].strip()
+                open_br = cls_body.find('{', cmc.end() - 1)
+                body = _extract_brace_block(cls_body, open_br) if open_br != -1 else ""
+                fun_lineno = src[:body_offset + cmc.start()].count('\n') + 1
+                doc = _get_preceding_comment(cls_body, cmc.start()) or _get_preceding_comment(src, body_offset + cmc.start())
+                cls_info.methods.append(FunctionInfo(
+                    name=name,
+                    qualname=f"{qual}.{name}",
+                    lineno=fun_lineno,
+                    docstring=doc,
+                    source=(sig + "\n" + (body[:1200] if body else "")).strip(),
+                    file_path=rel,
+                    class_name=class_name,
+                ))
+        fi.classes.append(cls_info)
+    func_pattern = re.compile(r"^\s*[A-Za-z_][\w:<>,\s\*&]+\s+([A-Za-z_][\w:]*)\s*\(([^)]*)\)\s*(const\s*)?\{", re.MULTILINE)
+    for fm in func_pattern.finditer(src):
+        fun_name = fm.group(1).split('::')[-1]
+        fun_qual = f"{rel.replace(os.sep, '.')}.{fun_name}"
+        open_br = src.find('{', fm.end() - 1)
+        body = _extract_brace_block(src, open_br) if open_br != -1 else ""
+        doc = _get_preceding_comment(src, fm.start())
+        sig = src[fm.start():src.find('{', fm.end() - 1)].strip()
+        fi.functions.append(FunctionInfo(
+            name=fun_name,
+            qualname=fun_qual,
+            lineno=src[:fm.start()].count('\n') + 1,
+            docstring=doc,
+            source=(sig + "\n" + (body[:1500] if body else "")).strip(),
+            file_path=rel,
+        ))
     return fi
 
 
@@ -444,17 +659,45 @@ class Neo4jWriter:
             return out
 
     def ensure_schema(self):
+        # Attempt to migrate old single-property uniqueness constraints to workspace-scoped composites
+        try:
+            rows = self.run("SHOW CONSTRAINTS")
+            for r in rows:
+                name = r.get("name") or r.get("constraintName")
+                labels = r.get("labelsOrTypes") or []
+                props = r.get("properties") or []
+                ctype = (r.get("type") or r.get("constraintType") or "").upper()
+                if "UNIQUE" in ctype:
+                    if labels == ["File"] and props == ["path"]:
+                        try:
+                            self.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
+                        except Exception:
+                            pass
+                    if labels == ["Class"] and props == ["qualname"]:
+                        try:
+                            self.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
+                        except Exception:
+                            pass
+                    if labels == ["Function"] and props == ["qualname"]:
+                        try:
+                            self.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Workspace-scoped uniqueness
         self.run("""
-        CREATE CONSTRAINT file_path_unique IF NOT EXISTS
-        FOR (f:File) REQUIRE f.path IS UNIQUE
+        CREATE CONSTRAINT file_ws_unique IF NOT EXISTS
+        FOR (f:File) REQUIRE (f.path, f.workspaceId) IS UNIQUE
         """)
         self.run("""
-        CREATE CONSTRAINT class_qual_unique IF NOT EXISTS
-        FOR (c:Class) REQUIRE c.qualname IS UNIQUE
+        CREATE CONSTRAINT class_ws_unique IF NOT EXISTS
+        FOR (c:Class) REQUIRE (c.qualname, c.workspaceId) IS UNIQUE
         """)
         self.run("""
-        CREATE CONSTRAINT func_qual_unique IF NOT EXISTS
-        FOR (f:Function) REQUIRE f.qualname IS UNIQUE
+        CREATE CONSTRAINT func_ws_unique IF NOT EXISTS
+        FOR (f:Function) REQUIRE (f.qualname, f.workspaceId) IS UNIQUE
         """)
         self.run("""
         CREATE CONSTRAINT lib_name_unique IF NOT EXISTS
@@ -479,21 +722,36 @@ class Neo4jWriter:
                 pass
 
     def clear_file(self, rel_path: str, workspace_id: Optional[str] = None):
-        self.run("""
-        MATCH (f:File {path:$p})
-        WHERE $wid IS NULL OR f.workspaceId = $wid
-        OPTIONAL MATCH (f)-[:CONTAINS]->(n)
-        DETACH DELETE n, f
-        """, p=rel_path, wid=workspace_id)
+        if workspace_id is None:
+            self.run("""
+            MATCH (f:File {path:$p})
+            OPTIONAL MATCH (f)-[:CONTAINS]->(n)
+            DETACH DELETE n, f
+            """, p=rel_path)
+        else:
+            self.run("""
+            MATCH (f:File {path:$p, workspaceId:$wid})
+            OPTIONAL MATCH (f)-[:CONTAINS]->(n)
+            DETACH DELETE n, f
+            """, p=rel_path, wid=workspace_id)
 
     def upsert_file(self, fi: FileInfo, workspace_id: Optional[str]):
-        self.run(
-            """
-            MERGE (f:File {path:$path})
-            SET f.language = $lang, f.workspaceId = $wid
-            """,
-            path=fi.path, lang=fi.language, wid=workspace_id,
-        )
+        if workspace_id is None:
+            self.run(
+                """
+                MERGE (f:File {path:$path})
+                SET f.language = $lang
+                """,
+                path=fi.path, lang=fi.language,
+            )
+        else:
+            self.run(
+                """
+                MERGE (f:File {path:$path, workspaceId:$wid})
+                SET f.language = $lang
+                """,
+                path=fi.path, lang=fi.language, wid=workspace_id,
+            )
         for lib in fi.imports:
             self.run("MERGE (l:Library {name:$name})", name=lib)
             self.run(
@@ -526,16 +784,28 @@ class Neo4jWriter:
             f"# Class: {ci.qualname}", ci.docstring or "", ci.source or "",
         ])
         emb = self._emb(text)
-        self.run(
-            """
-            MERGE (c:Class {qualname:$qual})
-            SET c.name=$name, c.docstring=$doc, c.source=$src, c.file_path=$fp, c.embedding=$emb, c.workspaceId=$wid
-            WITH c
-            MATCH (f:File {path:$fp})
-            MERGE (f)-[:CONTAINS]->(c)
-            """,
-            qual=ci.qualname, name=ci.name, doc=ci.docstring, src=ci.source, fp=fi.path, emb=emb, wid=workspace_id,
-        )
+        if workspace_id is None:
+            self.run(
+                """
+                MERGE (c:Class {qualname:$qual})
+                SET c.name=$name, c.docstring=$doc, c.source=$src, c.file_path=$fp, c.embedding=$emb
+                WITH c
+                MATCH (f:File {path:$fp})
+                MERGE (f)-[:CONTAINS]->(c)
+                """,
+                qual=ci.qualname, name=ci.name, doc=ci.docstring, src=ci.source, fp=fi.path, emb=emb,
+            )
+        else:
+            self.run(
+                """
+                MERGE (c:Class {qualname:$qual, workspaceId:$wid})
+                SET c.name=$name, c.docstring=$doc, c.source=$src, c.file_path=$fp, c.embedding=$emb
+                WITH c
+                MATCH (f:File {path:$fp, workspaceId:$wid})
+                MERGE (f)-[:CONTAINS]->(c)
+                """,
+                qual=ci.qualname, name=ci.name, doc=ci.docstring, src=ci.source, fp=fi.path, emb=emb, wid=workspace_id,
+            )
 
     def upsert_function(self, fi: FileInfo, fun: FunctionInfo, workspace_id: Optional[str]):
         sig_hint = f"def {fun.name}(...)"
@@ -543,24 +813,45 @@ class Neo4jWriter:
             f"# Function: {fun.qualname}", fun.docstring or "", sig_hint, fun.source or "",
         ])
         emb = self._emb(text)
-        self.run(
-            """
-            MERGE (fn:Function {qualname:$qual})
-            SET fn.name=$name, fn.docstring=$doc, fn.source=$src, fn.file_path=$fp, fn.class_name=$cls, fn.embedding=$emb, fn.workspaceId=$wid
-            WITH fn
-            MATCH (f:File {path:$fp})
-            MERGE (f)-[:CONTAINS]->(fn)
-            """,
-            qual=fun.qualname, name=fun.name, doc=fun.docstring, src=fun.source, fp=fi.path, cls=fun.class_name, emb=emb, wid=workspace_id,
-        )
-        if fun.class_name:
+        if workspace_id is None:
             self.run(
                 """
-                MATCH (c:Class {qualname:$cqual}), (fn:Function {qualname:$fqual})
-                MERGE (c)-[:DECLARES]->(fn)
+                MERGE (fn:Function {qualname:$qual})
+                SET fn.name=$name, fn.docstring=$doc, fn.source=$src, fn.file_path=$fp, fn.class_name=$cls, fn.embedding=$emb
+                WITH fn
+                MATCH (f:File {path:$fp})
+                MERGE (f)-[:CONTAINS]->(fn)
                 """,
-                cqual=f"{fi.path.replace(os.sep, '.')}.{fun.class_name}", fqual=fun.qualname,
+                qual=fun.qualname, name=fun.name, doc=fun.docstring, src=fun.source, fp=fi.path, cls=fun.class_name, emb=emb,
             )
+        else:
+            self.run(
+                """
+                MERGE (fn:Function {qualname:$qual, workspaceId:$wid})
+                SET fn.name=$name, fn.docstring=$doc, fn.source=$src, fn.file_path=$fp, fn.class_name=$cls, fn.embedding=$emb
+                WITH fn
+                MATCH (f:File {path:$fp, workspaceId:$wid})
+                MERGE (f)-[:CONTAINS]->(fn)
+                """,
+                qual=fun.qualname, name=fun.name, doc=fun.docstring, src=fun.source, fp=fi.path, cls=fun.class_name, emb=emb, wid=workspace_id,
+            )
+        if fun.class_name:
+            if workspace_id is None:
+                self.run(
+                    """
+                    MATCH (c:Class {qualname:$cqual}), (fn:Function {qualname:$fqual})
+                    MERGE (c)-[:DECLARES]->(fn)
+                    """,
+                    cqual=f"{fi.path.replace(os.sep, '.')}.{fun.class_name}", fqual=fun.qualname,
+                )
+            else:
+                self.run(
+                    """
+                    MATCH (c:Class {qualname:$cqual, workspaceId:$wid}), (fn:Function {qualname:$fqual, workspaceId:$wid})
+                    MERGE (c)-[:DECLARES]->(fn)
+                    """,
+                    cqual=f"{fi.path.replace(os.sep, '.')}.{fun.class_name}", fqual=fun.qualname, wid=workspace_id,
+                )
 
     def link_calls(self, workspace_id: Optional[str]):
         # Delete only relationships within the same workspace to avoid cross-workspace links
@@ -603,7 +894,17 @@ class GraphService:
         self.pwd = os.getenv("NEO4J_PASSWORD", "neo4j")
         self.embedder: Optional[Embedder] = None
         self.writer: Optional[Neo4jWriter] = None
-        self.workspaces_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "server_workspaces"))
+        # Choose a workspaces root OUTSIDE the project tree to avoid reload watchers
+        # picking up changes and reloading the app during sync.
+        ws_root_env = os.getenv("GRAPH_WORKSPACES_ROOT")
+        if ws_root_env and ws_root_env.strip():
+            self.workspaces_root = os.path.abspath(ws_root_env)
+        else:
+            local_appdata = os.getenv("LOCALAPPDATA")
+            if os.name == 'nt' and local_appdata:
+                self.workspaces_root = os.path.join(local_appdata, "graphrag_server_workspaces")
+            else:
+                self.workspaces_root = os.path.join(tempfile.gettempdir(), "graphrag_server_workspaces")
         os.makedirs(self.workspaces_root, exist_ok=True)
         # Embedding cache stored across workspaces
         self.emb_cache = EmbeddingCache(os.path.join(self.workspaces_root, "_embed_cache.v1.json"))
