@@ -214,6 +214,9 @@ async def health_check():
     return {"status": "healthy", "service": "AI Code Header Generator"}
 
 # ---------------- GraphRAG Integration ----------------
+# Optional GraphRAG integration: keep this import guarded so the API can
+# start and serve core endpoints even if Neo4j/GraphRAG dependencies
+# are not installed or reachable.
 try:
     from graphrag_service import GraphService
     _graph_service = GraphService()
@@ -317,5 +320,8 @@ async def rag(req: RagRequest) -> RagResponse:
         raise
 
 if __name__ == "__main__":
+    # Import uvicorn only when running this module directly to avoid
+    # forcing the dependency at import time (e.g., when used by another
+    # process/ASGI server or during tests).
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

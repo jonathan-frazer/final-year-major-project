@@ -10,8 +10,9 @@ import {
   runGraphRagCommand
 } from './commands';
 
-export function activate(context: vscode.ExtensionContext) {
-  console.log('AI Header Commenter extension is now active!');
+export function activate(context: vscode.ExtensionContext) 
+{
+  console.log('NeuroDoc extension is now active!');
 
   // Generate AI Documentation Commands
   let generateWorkspaceCommand = vscode.commands.registerCommand('aiHeaderCommenter.generateAIDocumentationWorkspace', generateAIDocumentationWorkspace);
@@ -22,7 +23,11 @@ export function activate(context: vscode.ExtensionContext) {
   let clearWorkspaceCommand = vscode.commands.registerCommand('aiHeaderCommenter.clearAIDocumentationWorkspace', clearAIDocumentationWorkspace);
   let clearCurrentFileCommand = vscode.commands.registerCommand('aiHeaderCommenter.clearAIDocumentationCurrentFile', clearAIDocumentationCurrentFile);
   let clearCurrentFolderCommand = vscode.commands.registerCommand('aiHeaderCommenter.clearAIDocumentationCurrentFolder', clearAIDocumentationCurrentFolder);
-
+  
+  // Sync Graph Commands
+  let syncGraphCommand = vscode.commands.registerCommand('aiHeaderCommenter.syncGraph', syncGraphDatabase);
+  let runGraphCommand = vscode.commands.registerCommand('aiHeaderCommenter.runGraphRag', runGraphRagCommand);
+  
   context.subscriptions.push(
     generateWorkspaceCommand, 
     generateCurrentFileCommand, 
@@ -30,8 +35,8 @@ export function activate(context: vscode.ExtensionContext) {
     clearWorkspaceCommand,
     clearCurrentFileCommand,
     clearCurrentFolderCommand,
-    vscode.commands.registerCommand('aiHeaderCommenter.syncGraph', syncGraphDatabase),
-    vscode.commands.registerCommand('aiHeaderCommenter.runGraphRag', runGraphRagCommand)
+    syncGraphCommand,
+    runGraphCommand
   );
 }
 

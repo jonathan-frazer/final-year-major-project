@@ -117,6 +117,53 @@ Notes:
 - Graph sync is per-workspace and tags nodes with `workspaceId`
 - RAG retrieval is filtered by workspace to avoid cross-project leakage
 
+## How the Flow Works
+
+### 1) Graph Sync (build the knowledge graph)
+
+- Triggered by the VS Code command “NeuroDoc: Sync Graph” (or programmatically via `POST /api/graph/sync`).
+- The extension sends a set of file changes (added/modified/deleted), optionally as a patch. The backend mirrors these into a workspace-scoped mirror folder outside your project tree, so reload watchers don’t interfere.
+- Each touched file is parsed to extract:
+  - Imports/libraries → creates `Library` nodes and `(:File)-[:IMPORTS]->(:Library)` edges
+  - Classes/methods and top-level functions → creates `File`, `Class`, and `Function` nodes and `(:File)-[:CONTAINS]->(:Class|:Function)` edges
+  - Basic call hints → creates `(:Function)-[:CALLS]->(:Function)` edges (heuristic text matching within function bodies)
+- Embeddings are generated for `Class` and `Function` nodes using the configured backend:
+  - `EMBEDDING_BACKEND=local` → SentenceTransformer `all-MiniLM-L6-v2` (dim=384)
+  - `EMBEDDING_BACKEND=openai` → OpenAI `text-embedding-3-small` (dim=1536)
+- Embeddings are cached to a JSON cache on disk and written to Neo4j. Vector indexes are created:
+  - `function_embedding` for `:Function(embedding)`
+  - `class_embedding` for `:Class(embedding)`
+- Uniqueness constraints scope nodes by workspace to avoid cross-project collisions.
+- Optional full replace: if `replace=true` is provided in the sync request, the backend clears existing graph content before upserting.
+
+Related endpoints:
+
+- `GET /api/graph/status` → counts of files/classes/functions
+- `GET /api/graph/manifest` → server-side workspace file manifest with hashes
+- `GET /api/graph/file` → fetch server-side content of a mirrored file
+
+### 2) GraphRAG Querying (optimize the query, then retrieve)
+
+- Triggered by the VS Code command “NeuroDoc: Run GraphRAG” (or `POST /api/graph/rag`).
+- Before retrieval, the backend builds a compact graph digest (workspace-scoped): languages present, most-used libraries, likely entry points, high-degree functions.
+- Query Optimizer step:
+  - The user’s question is rewritten into a focused retrieval query using LLM structured output when available.
+  - Primary path: LangChain `with_structured_output` on `ChatOpenAI` to produce a `RewriteSpec` (focused query + short rationale).
+  - Fallback path: OpenAI Responses API with a JSON schema to obtain `rewritten_query`.
+  - Heuristic fallback: if LLMs are unavailable, a concise reformulation is produced, optionally annotated with the graph digest.
+- Retrieval and answer generation:
+  - If the external `neo4j_graphrag` stack is not available, a lightweight fallback runs a vector query directly against Neo4j’s `function_embedding` index and returns the top matching functions (debug info optionally included).
+  - If available, the system instantiates `OpenAILLM` + `VectorRetriever` and runs `GraphRAG.search(rewritten_query)`. A workspace-scoped prelude is added to keep retrieval within the active workspace.
+  - Output is a concise answer synthesized from the retrieved code nodes.
+
+Configuration knobs (see `FastAPI Backend/config.yaml`):
+
+- `graphrag.top_k`, `graphrag.fallback_top_k`, `graphrag.request_timeout_seconds`, `graphrag.max_context_tokens`, `graphrag.prelude_enabled`, `graphrag.workspace_scope`
+
+Environment variables (see `.env`):
+
+- `EMBEDDING_BACKEND` (`local` or `openai`), `OPENAI_API_KEY`, `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `GEMINI_API_KEY`
+
 ## Supported Languages
 
 | Language   | Extension | Comment Style                     |

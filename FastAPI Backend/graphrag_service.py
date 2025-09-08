@@ -533,7 +533,8 @@ class Embedder:
             self.model = SentenceTransformer("all-MiniLM-L6-v2")
             self.dim = 384
         elif self.backend == "openai":
-            # Import OpenAI client lazily to reflect current environment
+            # Lazy import: only require openai package if OpenAI backend is selected,
+            # so the server can run with local embeddings without this dependency.
             try:
                 from openai import OpenAI  # type: ignore
             except Exception as e:
@@ -557,6 +558,8 @@ class Embedder:
     def embed(self, texts: List[str]) -> List[List[float]]:
         if self.backend == "local":
             return self.model.encode(texts, show_progress_bar=False, normalize_embeddings=True).tolist()
+        # Lazy import at call site: keep optional dependency out of module import path
+        # and reflect current environment variables at runtime.
         from openai import OpenAI  # type: ignore
         client = OpenAI()
         resp = client.embeddings.create(model=self.model_name, input=texts)
@@ -921,6 +924,8 @@ class GraphService:
             }
         }
         try:
+            # Optional config: yaml is only needed if a config file is present.
+            # Avoid making PyYAML a hard dependency.
             import yaml  # type: ignore
             with open(os.path.join(os.path.dirname(__file__), "config.yaml"), "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
