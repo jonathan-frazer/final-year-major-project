@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Tuple, Set
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+from pydantic import BaseModel, Field, ValidationError
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -928,6 +929,170 @@ class GraphService:
         except Exception:
             pass
 
+    def _graph_digest(self, workspace_id: Optional[str]) -> str:
+        """Summarize key graph aspects to steer query rewriting."""
+        self._ensure_writer()
+        parts: List[str] = []
+        try:
+            with self.writer.driver.session() as s:
+                # Languages
+                rows = s.run(
+                    """
+                    MATCH (f:File)
+                    WHERE $wid IS NULL OR f.workspaceId = $wid
+                    RETURN f.language AS lang, count(*) AS c
+                    ORDER BY c DESC
+                    LIMIT 5
+                    """,
+                    wid=workspace_id,
+                )
+                langs = ", ".join([f"{r['lang']}({r['c']})" for r in rows if r.get('lang')])
+                if langs:
+                    parts.append(f"languages: {langs}")
+
+                # Top libraries
+                rows = s.run(
+                    """
+                    MATCH (f:File)-[:IMPORTS]->(l:Library)
+                    WHERE $wid IS NULL OR f.workspaceId = $wid
+                    RETURN l.name AS lib, count(*) AS c
+                    ORDER BY c DESC
+                    LIMIT 8
+                    """,
+                    wid=workspace_id,
+                )
+                libs = ", ".join([str(r["lib"]) for r in rows])
+                if libs:
+                    parts.append(f"libraries: {libs}")
+
+                # Entry points (heuristic)
+                rows = s.run(
+                    """
+                    MATCH (fn:Function)
+                    WHERE ($wid IS NULL OR fn.workspaceId = $wid)
+                      AND (toLower(fn.name) CONTAINS 'main' OR toLower(fn.qualname) CONTAINS 'application')
+                    RETURN fn.qualname AS q
+                    LIMIT 10
+                    """,
+                    wid=workspace_id,
+                )
+                entries = [str(r["q"]) for r in rows]
+                if entries:
+                    parts.append("entry_points: " + "; ".join(entries))
+
+                # High-degree functions by calls
+                rows = s.run(
+                    """
+                    MATCH (f:Function)
+                    WHERE $wid IS NULL OR f.workspaceId = $wid
+                    OPTIONAL MATCH (f)-[r:CALLS]->() WITH f, count(r) AS out
+                    OPTIONAL MATCH ()-[r2:CALLS]->(f) WITH f, out, count(r2) AS in
+                    RETURN f.qualname AS q, in+out AS deg
+                    ORDER BY deg DESC
+                    LIMIT 10
+                    """,
+                    wid=workspace_id,
+                )
+                hubs = ", ".join([str(r["q"]) for r in rows])
+                if hubs:
+                    parts.append(f"hubs: {hubs}")
+        except Exception:
+            pass
+        return " | ".join(parts)[:1000]
+
+    def _rewrite_query(self, question: str, workspace_id: Optional[str], digest: Optional[str] = None) -> str:
+        digest = digest if digest is not None else self._graph_digest(workspace_id)
+
+        class RewriteSpec(BaseModel):
+            rewritten_query: str = Field(..., description="Focused retrieval query")
+            reason: Optional[str] = Field(None, description="Brief rationale")
+
+        # Try LangChain structured output (preferred), then OpenAI Responses API
+        try:
+            from langchain_openai import ChatOpenAI  # type: ignore
+            from langchain_core.prompts import ChatPromptTemplate  # type: ignore
+            llm = ChatOpenAI(model="gpt-4o-nano")
+            Structured = llm.with_structured_output(RewriteSpec)
+            tmpl = ChatPromptTemplate.from_messages([
+                ("system", "You rewrite user requests into focused retrieval queries for a code GraphRAG system. "
+                           "When asked for code flow/architecture, emphasize entry points, layers, data flow, dependencies. Preserve identifiers."),
+                ("user", "Graph digest (workspace-scoped):\n{digest}\n\nUser request:\n{question}")
+            ])
+            chain = tmpl | Structured
+            res: RewriteSpec = chain.invoke({"digest": digest or "(none)", "question": question})  # type: ignore
+            if isinstance(res, RewriteSpec) and res.rewritten_query.strip():
+                return res.rewritten_query.strip()
+        except Exception:
+            # Fallback to OpenAI Responses API
+            try:
+                from openai import OpenAI  # type: ignore
+                client = OpenAI()
+                models = ["gpt-4o-nano", "gpt-4o-mini"]
+                sys = (
+                    "You convert user requests into focused retrieval queries for a code GraphRAG system. "
+                    "When users ask to summarize code flow/architecture, emphasize entry points, layers, data flow, and dependencies. "
+                    "Preserve explicit identifiers."
+                )
+                usr = (
+                    f"Graph digest (workspace-scoped):\n{digest or '(none)'}\n\n"
+                    f"User request:\n{question}\n"
+                )
+                schema = {
+                    "name": "rewrite_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "rewritten_query": {"type": "string"},
+                            "reason": {"type": "string"}
+                        },
+                        "required": ["rewritten_query"],
+                        "additionalProperties": False
+                    }
+                }
+                for m in models:
+                    try:
+                        resp = client.responses.create(
+                            model=m,
+                            input=[
+                                {"role": "system", "content": sys},
+                                {"role": "user", "content": usr}
+                            ],
+                            response_format={"type": "json_schema", "json_schema": schema},
+                        )
+                        content = None
+                        try:
+                            content = resp.output_text  # type: ignore
+                        except Exception:
+                            pass
+                        if not content:
+                            try:
+                                content = resp.outputs[0].content[0].text  # type: ignore
+                            except Exception:
+                                content = None
+                        if content:
+                            try:
+                                data = json.loads(content)
+                                spec = RewriteSpec(**data)
+                                if spec.rewritten_query.strip():
+                                    return spec.rewritten_query.strip()
+                            except (json.JSONDecodeError, ValidationError):
+                                continue
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Heuristic fallback with digest hint
+        q_lower = question.lower()
+        if ("summarize" in q_lower and "flow" in q_lower) or ("architecture" in q_lower):
+            base = ("Summarize overall architecture and runtime flow; identify entry points (main methods, Application classes), "
+                    "controllers/services, data flow from API to DB, and major external dependencies.")
+        else:
+            base = question
+        return f"{base} [context: {digest}]" if digest else base
+
     def _ensure_embedder(self) -> None:
         if self.embedder is None:
             self.embedder = Embedder()
@@ -1090,10 +1255,12 @@ class GraphService:
 
     def rag_answer(self, question: str, workspace_id: Optional[str] = None) -> str:
         self._ensure_writer()
+        digest = self._graph_digest(workspace_id)
+        rq = self._rewrite_query(question, workspace_id, digest)
         if GraphRAG is None or VectorRetriever is None or OpenAILLM is None:
             try:
                 self._ensure_embedder()
-                vec = self.embedder.embed([question])[0]
+                vec = self.embedder.embed([rq])[0]
                 with self.writer.driver.session() as s:
                     res = s.run(
                         """
@@ -1106,7 +1273,17 @@ class GraphService:
                         v=vec, wid=workspace_id, k=int(self.conf["graphrag"].get("fallback_top_k", 5)),
                     )
                     rows = [f"{r['q']} (score={r['score']:.4f})" for r in res]
-                return "Top functions:\n" + "\n".join(rows)
+                answer_text = "Top functions:\n" + "\n".join(rows)
+                if bool(self.conf["graphrag"].get("debug_output", False)):
+                    debug_block = (
+                        "\n\n---\n"
+                        "# Debug Information\n"
+                        f"Graph Digest:\n{digest}\n\n"
+                        f"User Query:\n{question}\n\n"
+                        f"Optimized Query:\n{rq}\n"
+                    )
+                    return (answer_text or "") + debug_block
+                return answer_text
             except Exception:
                 return "GraphRAG not available and no vector index reachable."
 
@@ -1124,7 +1301,17 @@ class GraphService:
         if prelude_enabled and workspace_id:
             prelude = f"Only use functions where workspaceId={workspace_id}.\n"
         # Best-effort: apply top_k to retriever if supported (VectorRetriever top_k param not exposed here, rely on index query default)
-        result = rag.search(f"{prelude}{question}")
-        return getattr(result, "answer", str(result))
+        result = rag.search(f"{prelude}{rq}")
+        answer_text = getattr(result, "answer", str(result))
+        if bool(self.conf["graphrag"].get("debug_output", False)):
+            debug_block = (
+                "\n\n---\n"
+                "# Debug Information\n"
+                f"Graph Digest:\n{digest}\n\n"
+                f"User Query:\n{question}\n\n"
+                f"Optimized Query:\n{rq}\n"
+            )
+            return (answer_text or "") + debug_block
+        return answer_text or ""
 
 

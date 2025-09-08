@@ -26,3 +26,5 @@ graphrag:
   prelude_enabled: true
   # Restrict retrieval strictly to the active workspace
   workspace_scope: true
+  # Adds debug information to the response
+  debug_output: false
