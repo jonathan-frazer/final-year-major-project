@@ -9,7 +9,7 @@ allowed_origins:
   - "*" # For development only
 
 # LLM Configuration
-model_name: "gemini-2.0-flash"
+model_name: "gemini-2.5-flash-lite"
 max_tokens: 1000
 
 # GraphRAG Configuration (tunable)

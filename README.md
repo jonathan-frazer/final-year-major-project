@@ -2,54 +2,28 @@
 
 NeuroDoc generates AI-powered header comments and provides GraphRAG-based, workspace-scoped code understanding.
 
-## Installation
-
-### 1) Backend Setup
-
-```bash
-cd "FastAPI Backend"
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-# or
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Create `FastAPI Backend/.env`:
-
-```
-GEMINI_API_KEY="YOUR API KEY HERE"
-```
-
-### 2) Extension Installation
-
-```bash
-cd "VS Code Extension"
-npm install
-npm run compile
-```
-
-Press F5 to launch the extension host.
-
 ## Project Overview
 
+- Neo4j Database: To store the Classes, Methods and files as a knowledge graph
 - FastAPI Backend: REST API for AI-powered header generation
 - VS Code Extension: integrates AI docs and GraphRAG into your workflow
 
 ### VS Code Commands
 
+- NeuroDoc: Sync Graph — auto full-replace for new workspaces; incremental otherwise
+- NeuroDoc: Run GraphRAG — writes to `NeuroDoc.md` at the workspace root
 - Generate AI Header (Entire Workspace)
+- Generate AI Header (Current Folder)
 - Generate AI Header (Current File)
+
+Notes:
+
+- Graph sync is per-workspace and tags nodes with `workspaceId`
+- RAG retrieval is filtered by workspace to avoid cross-project leakage
 
 GraphRAG is integrated for workspace-scoped analysis using Neo4j and vector search.
 
-### API Endpoints
-
-- POST /api/generate-header — generate header for a code file
-- GET / — health check
-- GET /health — detailed health status
-
-## GraphRAG Setup & Usage
+## Installation
 
 ### 1) Neo4j (Enterprise) via Docker
 
@@ -70,9 +44,9 @@ This will:
 
 ```
 cd "FastAPI Backend"
-.\.venv\Scripts\activate
+.\venv\Scripts\Activate
 python -m pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload //OR python main.py
 ```
 
 Configure `FastAPI Backend/.env`:
@@ -106,16 +80,6 @@ npm install
 npm run compile
 F5 to launch the extension host
 ```
-
-Commands:
-
-- NeuroDoc: Sync Graph — auto full-replace for new workspaces; incremental otherwise
-- NeuroDoc: Run GraphRAG — writes to `NeuroDoc.md` at the workspace root
-
-Notes:
-
-- Graph sync is per-workspace and tags nodes with `workspaceId`
-- RAG retrieval is filtered by workspace to avoid cross-project leakage
 
 ## How the Flow Works
 
